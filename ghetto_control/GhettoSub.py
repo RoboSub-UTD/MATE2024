@@ -18,17 +18,21 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 
+# basis vectors
 basis_f = np.array([1, 1, -1, -1])
 basis_r = np.array([-1, 1, -1, 1])
 basis_yaw = np.array([-1, 1, 1, -1]) #right, inverse for left
 
+# PWM constants
 FREQ_HZ = 50
 NEUTRAL = 1500
 RANGE_US = 400
 SERVO_CLAW_RANGE_US = 300 # 1000 for FT6335M # 300 for HSR-1425CR
 
+# Power constants
 VERTICAL_POWER = 0.25
 TURN_POWER = 0.25
+PWR_MODE = 0
 
 def us_to_value(us):
     return int(4095 * (us / 1000) / (1000 / FREQ_HZ))
@@ -117,6 +121,8 @@ class GhettoSubscriber(Node):
         
         self.right_edge_detector = EdgeDetector()
         self.left_edge_detector = EdgeDetector()
+        self.mode_edge_detector = EdgeDetector()
+
         self.servo_state = 0 # 1 for right, -1 for left
         
         print('Ready!')
@@ -131,6 +137,7 @@ class GhettoSubscriber(Node):
         return scale * direction
     
     def push_to_thrusters(self, input_array):
+        input_array = input_array
         Channels.THRUSTER_FR.set(input_array[0])
         Channels.THRUSTER_FL.set(input_array[1])
         Channels.THRUSTER_BR.set(input_array[2])
@@ -143,9 +150,16 @@ class GhettoSubscriber(Node):
     
     def listener_callback(self, msg):
         xbox = XboxMsg(msg)
-        
+        PWR_MODE = 0
+
+        self.mode_edge_detector.update(xbox.start)
         self.left_edge_detector.update(xbox.x)
         self.right_edge_detector.update(xbox.b)
+
+        if self.mode_edge_detector.rising:
+            PWR_MODE = (PWR_MODE + 1) % 3
+            self.get_logger().info(f'Power mode: {PWR_MODE}')
+
         if self.right_edge_detector.rising:
             if self.servo_state != 1:
                 self.servo_state = 1
@@ -160,7 +174,7 @@ class GhettoSubscriber(Node):
         
         f_scale = xbox.left_y
         r_scale = xbox.left_x
-        
+        PWR_SCALE = 1 / (2 ** PWR_MODE)  # this needs to be continuously updated
         if (not f_scale) and (not r_scale) and (xbox.right_bumper == xbox.left_bumper):
             self.push_to_thrusters([0,0,0,0])
         else:
