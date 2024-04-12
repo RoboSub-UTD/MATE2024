@@ -1,3 +1,9 @@
+# Usage:
+# - change directory into ros2_ws
+# - file structure should be src/ghetto_control/ghetto_control/GhettoSub.py
+# - build with `colcon build --packages-select ghetto_control; source install/setup.bash`
+# - run with `ros2 run ghetto_control ghetto_control`
+
 from dataclasses import dataclass
 from enum import Enum
 
@@ -19,7 +25,7 @@ basis_yaw = np.array([-1, 1, 1, -1]) #right, inverse for left
 FREQ_HZ = 50
 NEUTRAL = 1500
 RANGE_US = 400
-SERVO_CLAW_RANGE_US = 300
+SERVO_CLAW_RANGE_US = 300 # 1000 for FT6335M # 300 for HSR-1425CR
 
 VERTICAL_POWER = 0.25
 TURN_POWER = 0.25
@@ -67,6 +73,35 @@ class EdgeDetector:
                 self.falling = True
         self.last_value = value
 
+class XboxMsg:
+    def __init__(self, msg):
+        """
+        Joystick: +1 for up, right
+        Trigger: 0 to 1 for press amount
+        Button: False for unpressed, True for pressed
+        """
+        self.left_x = -msg.axes[0] # flipped b/c normally +1 corresponds to left :vomit:
+        self.left_y = msg.axes[1]
+        self.left_trigger = (1-msg.axes[2])/2
+        self.right_x = -msg.axes[3]
+        self.right_y = msg.axes[4]
+        self.right_trigger = (1-msg.axes[5])/2
+        self.dpad_left = msg.axes[6] == 1.0
+        self.dpad_right = msg.axes[6] == -1.0
+        self.dpad_up = msg.axes[7] == 1.0
+        self.dpad_down = msg.axes[7] == -1.0
+        button_map = list(map(bool, msg.buttons))
+        self.a = button_map[0]
+        self.b = button_map[1]
+        self.x = button_map[2]
+        self.y = button_map[3]
+        self.left_bumper = button_map[4]
+        self.right_bumper = button_map[5]
+        self.back = button_map[6]
+        self.start = button_map[7]
+        self.left_stick = button_map[9]   # press into the left stick
+        self.right_stick = button_map[10] # press into the right stick
+
 class GhettoSubscriber(Node):
     def __init__(self):
         super().__init__('ghetto_sub')
@@ -90,8 +125,8 @@ class GhettoSubscriber(Node):
         if np.linalg.norm(input_array) == 0:
             return input_array
     
-        scale = math.sqrt(2)*max(min(np.linalg.norm(np.array([f_scale, r_scale])), 1), -1) #theoretically max 1, min 0
-        direction = input_array / (np.linalg.norm(input_array)) #theoretically a unit vector
+        scale = math.sqrt(2) * max(min(np.linalg.norm(np.array([f_scale, r_scale])), 1), -1)
+        direction = input_array / (np.linalg.norm(input_array)) # unit vector
 
         return scale * direction
     
@@ -103,12 +138,14 @@ class GhettoSubscriber(Node):
     
     def push_to_vertical(self, left_power, right_power):
         # 1 is up
-        Channels.THRUSTER_VR.set(right_power*VERTICAL_POWER)
-        Channels.THRUSTER_VL.set(left_power*VERTICAL_POWER)
+        Channels.THRUSTER_VR.set(right_power * VERTICAL_POWER)
+        Channels.THRUSTER_VL.set(left_power  * VERTICAL_POWER)
     
     def listener_callback(self, msg):
-        self.right_edge_detector.update(bool(msg.buttons[1]))
-        self.left_edge_detector.update(bool(msg.buttons[2]))
+        xbox = XboxMsg(msg)
+        
+        self.left_edge_detector.update(xbox.x)
+        self.right_edge_detector.update(xbox.b)
         if self.right_edge_detector.rising:
             if self.servo_state != 1:
                 self.servo_state = 1
@@ -119,51 +156,42 @@ class GhettoSubscriber(Node):
                 self.servo_state = -1
             else:
                 self.servo_state = 0
-        
-        f_scale = msg.axes[1]
-        r_scale = -1 * msg.axes[0] #flipped b/c normally +1 corresponds to left :vomit:
-
-        up_pressed = bool(msg.axes[7] == 1.0)
-        down_pressed = bool(msg.axes[7] == -1.0)
-        left_pressed = bool(msg.axes[6] == 1.0)
-        right_pressed = bool(msg.axes[6] == -1.0)
-        right_shoulder_pressed = bool(msg.buttons[5]) #^
-        left_shoulder_pressed = bool(msg.buttons[4]) #^
-        
         Channels.SERVO_CLAW.set(self.servo_state)
         
-        if (not f_scale) and (not r_scale) and (not right_shoulder_pressed) and (not left_shoulder_pressed):
+        f_scale = xbox.left_y
+        r_scale = xbox.left_x
+        
+        if (not f_scale) and (not r_scale) and (xbox.right_bumper == xbox.left_bumper):
             self.push_to_thrusters([0,0,0,0])
         else:
-            if right_shoulder_pressed and (not left_shoulder_pressed):
+            if xbox.right_bumper:
                 output = TURN_POWER * basis_yaw
                 self.push_to_thrusters(output)
                 self.get_logger().info(f'yawing right: {output}')
-            elif left_shoulder_pressed:
+            elif xbox.left_bumper:
                 output = -TURN_POWER * basis_yaw
                 self.push_to_thrusters(output)
                 self.get_logger().info(f'yawing left: {output}')
-                
             else:
-                #yawing takes exclusive precedence over translational motion 
+                # yawing takes exclusive precedence over translational motion 
                 output = f_scale * basis_f + r_scale * basis_r
                 output = self.norm_input(output, f_scale, r_scale)
-                #publish
+                # publish
                 self.push_to_thrusters(output)
                 self.get_logger().info(f'Input: {f_scale:g} {r_scale:g}\tOutput vector: {output}')
 
         vertical = np.array([0,0])
         vertical_strs = []
-        if up_pressed:
+        if xbox.dpad_up:
             vertical += [ 1, 1]
             vertical_strs.append('up')
-        if down_pressed:
+        if xbox.dpad_down:
             vertical += [-1,-1]
             vertical_strs.append('down')
-        if left_pressed:
+        if xbox.dpad_left:
             vertical += [-1, 1]
             vertical_strs.append('roll left')
-        if right_pressed:
+        if xbox.dpad_right:
             vertical += [ 1,-1]
             vertical_strs.append('roll right')
         if len(vertical_strs):
