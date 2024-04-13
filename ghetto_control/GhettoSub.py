@@ -18,17 +18,21 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 
+# basis vectors
 basis_f = np.array([1, 1, -1, -1])
 basis_r = np.array([-1, 1, -1, 1])
 basis_yaw = np.array([-1, 1, 1, -1]) #right, inverse for left
 
+# PWM constants
 FREQ_HZ = 50
 NEUTRAL = 1500
 RANGE_US = 400
 SERVO_CLAW_RANGE_US = 300 # 1000 for FT6335M # 300 for HSR-1425CR
 
-VERTICAL_POWER = 0.25
-TURN_POWER = 0.25
+# Power constants
+VERTICAL_POWER = 0.75
+TURN_POWER = 0.75
+PWR_MODE = 0
 
 def us_to_value(us):
     return int(4095 * (us / 1000) / (1000 / FREQ_HZ))
@@ -48,11 +52,11 @@ class Channel:
 
 class Channels(Channel, Enum):
     # NAME = (channel, reversed=False, range=400, neutral=1500)
-    THRUSTER_FR = (PwmChannel.Ch1, False)
-    THRUSTER_FL = (PwmChannel.Ch2, False)
-    THRUSTER_BR = (PwmChannel.Ch3, False)
-    THRUSTER_BL = (PwmChannel.Ch4, False)
-    THRUSTER_VR = (PwmChannel.Ch5, False)
+    THRUSTER_FR = (PwmChannel.Ch1, True)
+    THRUSTER_FL = (PwmChannel.Ch2, True)
+    THRUSTER_BR = (PwmChannel.Ch3, True)
+    THRUSTER_BL = (PwmChannel.Ch4, True)
+    THRUSTER_VR = (PwmChannel.Ch5, True)
     THRUSTER_VL = (PwmChannel.Ch6, False)
     SERVO_CLAW  = (PwmChannel.Ch7, False, SERVO_CLAW_RANGE_US)
 
@@ -80,11 +84,11 @@ class XboxMsg:
         Trigger: 0 to 1 for press amount
         Button: False for unpressed, True for pressed
         """
-        self.left_x = -msg.axes[0] # flipped b/c normally +1 corresponds to left :vomit:
-        self.left_y = msg.axes[1]
+        self.left_x = -msg.axes[1] # flipped b/c normally +1 corresponds to left :vomit:
+        self.left_y = msg.axes[0]
         self.left_trigger = (1-msg.axes[2])/2
-        self.right_x = -msg.axes[3]
-        self.right_y = msg.axes[4]
+        self.right_x = -msg.axes[4]
+        self.right_y = msg.axes[3]
         self.right_trigger = (1-msg.axes[5])/2
         self.dpad_left = msg.axes[6] == 1.0
         self.dpad_right = msg.axes[6] == -1.0
@@ -117,6 +121,9 @@ class GhettoSubscriber(Node):
         
         self.right_edge_detector = EdgeDetector()
         self.left_edge_detector = EdgeDetector()
+        self.mode_edge_detector = EdgeDetector()
+        self.PWR_MODE = 0
+
         self.servo_state = 0 # 1 for right, -1 for left
         
         print('Ready!')
@@ -143,9 +150,14 @@ class GhettoSubscriber(Node):
     
     def listener_callback(self, msg):
         xbox = XboxMsg(msg)
-        
+        self.mode_edge_detector.update(xbox.start)
         self.left_edge_detector.update(xbox.x)
         self.right_edge_detector.update(xbox.b)
+
+        if self.mode_edge_detector.rising:
+            self.PWR_MODE = (self.PWR_MODE + 1) % 3
+            self.get_logger().info(f'Power mode: {self.PWR_MODE}')
+
         if self.right_edge_detector.rising:
             if self.servo_state != 1:
                 self.servo_state = 1
@@ -160,7 +172,7 @@ class GhettoSubscriber(Node):
         
         f_scale = xbox.left_y
         r_scale = xbox.left_x
-        
+        PWR_SCALE = 1 / (2 ** self.PWR_MODE)  # this needs to be continuously updated
         if (not f_scale) and (not r_scale) and (xbox.right_bumper == xbox.left_bumper):
             self.push_to_thrusters([0,0,0,0])
         else:
@@ -176,6 +188,7 @@ class GhettoSubscriber(Node):
                 # yawing takes exclusive precedence over translational motion 
                 output = f_scale * basis_f + r_scale * basis_r
                 output = self.norm_input(output, f_scale, r_scale)
+                output = output * PWR_SCALE
                 # publish
                 self.push_to_thrusters(output)
                 self.get_logger().info(f'Input: {f_scale:g} {r_scale:g}\tOutput vector: {output}')
@@ -183,20 +196,23 @@ class GhettoSubscriber(Node):
         vertical = np.array([0,0])
         vertical_strs = []
         if xbox.dpad_up:
-            vertical += [ 1, 1]
+            self.push_to_vertical(1, 1)
             vertical_strs.append('up')
-        if xbox.dpad_down:
-            vertical += [-1,-1]
+        elif xbox.dpad_down:
+            self.push_to_vertical(-1, -1)
             vertical_strs.append('down')
+        else:
+            self.push_to_vertical(0,0)
+
         if xbox.dpad_left:
-            vertical += [-1, 1]
+            #vertical += [-1, 1]
             vertical_strs.append('roll left')
         if xbox.dpad_right:
-            vertical += [ 1,-1]
+            #vertical += [ 1,-1]
             vertical_strs.append('roll right')
         if len(vertical_strs):
             self.get_logger().info(f'vertical {" + ".join(vertical_strs)}')
-        self.push_to_vertical(*np.clip(vertical, -1, 1))
+        #self.push_to_vertical()
 
 def main(args=None):
     rclpy.init(args=args)
