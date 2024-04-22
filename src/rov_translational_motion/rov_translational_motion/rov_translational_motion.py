@@ -33,6 +33,10 @@ SERVO_CLAW_RANGE_US = 300 # 1000 for FT6335M # 300 for HSR-1425CR
 VERTICAL_POWER = 0.25
 TURN_POWER = 0.25
 PWR_MODE = 0
+i2c = board.I2C()
+pca = adafruit_pca9685.PCA9685(i2c)
+pca.frequency = FREQ_HZ
+
 
 def us_to_value(us):
     return int(4095 * (us / 1000) / (1000 / FREQ_HZ))
@@ -46,24 +50,24 @@ class Channel:
     reversed: bool = False
     range: int = RANGE_US
     neutral: int = NEUTRAL
-    min_duty = int((neutral - range * FREQ_HZ) / 1000000 * 0xFFFF)
-    max_duty = int(neutral + range) * FREQ_HZ
+    min_duty = int((neutral - range) * FREQ_HZ / 1000000 * 0xFFFF)
+    max_duty = int((neutral + range) * FREQ_HZ / 1000000 * 0xFFFF)
     neut_duty = int(min_duty + max_duty) / 2
     range_duty = int(max_duty - neut_duty)
     
     def set(self, power):
-        self.duty_cyle = int(((-1 if self.reversed else 1)*power*self.range_duty + self.neut_duty))
+       print("test")       
+       self.channel.duty_cycle = int(((-1 if self.reversed else 1)*power*self.range_duty + self.neut_duty))
 
 @dataclass
 class Channels(Channel, Enum):
-    def __init__(self):
-	    THRUSTER_FR = (self.pca.channels[0], False)
-	    THRUSTER_FL = (self.pca.channels[1], False)
-	    THRUSTER_BR = (self.pca.channels[2], False)
-	    THRUSTER_BL = (self.pca.channels[3], False)
-	    THRUSTER_VR = (self.pca.channels[4], False)
-	    THRUSTER_VL = (self.pca.channels[5], False)
-	    SERVO_CLAW  = (self.pca.channels[6], False, SERVO_CLAW_RANGE_US)
+    THRUSTER_FR = (pca.channels[0], False)
+    THRUSTER_FL = (pca.channels[1], False)
+    THRUSTER_BR = (pca.channels[2], False)
+    THRUSTER_BL = (pca.channels[3], False)
+    THRUSTER_VR = (pca.channels[4], False)
+    THRUSTER_VL = (pca.channels[5], False)
+    SERVO_CLAW  = (pca.channels[6], False, SERVO_CLAW_RANGE_US)
 
 
 class EdgeDetector:
@@ -110,9 +114,6 @@ class XboxMsg:
         self.start = button_map[7]
         self.left_stick = button_map[9]   # press into the left stick
         self.right_stick = button_map[10] # press into the right stick
-        self.i2c = board.I2C()
-        self.pca = adafruit_pca9685.PCA9685(i2c)
-        self.pca.frequency = FREQ_HZ
         
 
 class ROVTranslationalMotion(Node):
@@ -144,6 +145,7 @@ class ROVTranslationalMotion(Node):
     def push_to_thrusters(self, input_array):
         input_array = input_array
         Channels.THRUSTER_FR.set(input_array[0])
+
         Channels.THRUSTER_FL.set(input_array[1])
         Channels.THRUSTER_BR.set(input_array[2])
         Channels.THRUSTER_BL.set(input_array[3])
