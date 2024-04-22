@@ -1,11 +1,11 @@
-from setuptools import find_packages, setup
+from setuptools import setup
 
-package_name = 'ghetto_control'
+package_name = 'rov_translational_motion'
 
 setup(
     name=package_name,
     version='0.0.0',
-    packages=find_packages(exclude=['test']),
+    packages=[package_name],
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -13,14 +13,14 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='robosub',
-    maintainer_email='robosub.utdallas@gmail.com',
+    maintainer='onboard-rs',
+    maintainer_email='onboard-rs@todo.todo',
     description='TODO: Package description',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-                'ghetto_control = ghetto_control.GhettoSub:main',
+        	'rov_translational_motion = rov_translational_motion.rov_translational_motion:main',
         ],
-	},
+    },
 )
