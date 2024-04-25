@@ -1,6 +1,6 @@
 from setuptools import setup
 
-package_name = 'translational_publisher'
+package_name = 'pca_9685_controller'
 
 setup(
     name=package_name,
@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+                'pca_9685_controller = pca_9685_controller.pca_9685_controller:main',
         ],
     },
 )
