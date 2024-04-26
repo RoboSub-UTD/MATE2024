@@ -72,7 +72,13 @@ class ControllerSignalPub(Node):
                 self.translational_publisher = self.create_publisher(Pca9685, 'translational_signal', 10)
                 self.depth_sp_publisher = self.create_publisher(Depthm, 'depth_setpoint', 10)
                 self.depth_setpoint = 0;
-
+                self.subscription = self.create_subscription(
+                    Joy,
+                    'joy',
+                    self.listener_callback,
+                    10)
+                self.subscription  # prevent unused variable warning
+                self.mode_edge_detector = EdgeDetector()
                 print('Controller Signal Publisher Ready!')
 
         def norm_input(self, input_array, f_scale, r_scale):
@@ -85,25 +91,29 @@ class ControllerSignalPub(Node):
                 return scale * direction
     
         def publish_translational(self, input_array):
-                msg = np.zeros(16)
-                msg[0] = input_array[0]
-                msg[1] = input_array[1]
-                msg[2] = input_array[2]
-                msg[3] = input_array[3]
+                msg = Pca9685()
+                msg.channel_values = np.zeros(16, dtype = np.float32)
+                msg.channel_values[0] = input_array[0]
+                msg.channel_values[1] = input_array[1]
+                msg.channel_values[2] = input_array[2]
+                msg.channel_values[3] = input_array[3]
                 self.translational_publisher.publish(msg)
     
         def publish_depth_setpoint(self, change):
-                depth_setpoint = depth_setpoint + change
-                self.depth_sp_publisher.publish(depth_setpoint)
+                msg = Depthm()
+                self.depth_setpoint = self.depth_setpoint + change
+                msg.depth_m = self.depth_setpoint
+                self.depth_sp_publisher.publish(msg)
             
         def listener_callback(self, msg):
                 xbox = XboxMsg(msg)
                 self.PWR_MODE = 0
 
                 self.mode_edge_detector.update(xbox.start)
+                '''
                 self.left_edge_detector.update(xbox.x)
                 self.right_edge_detector.update(xbox.b)
-
+                '''
 
                 if self.mode_edge_detector.rising:
                         self.PWR_MODE = (self.PWR_MODE + 1) % 3
@@ -144,9 +154,10 @@ class ControllerSignalPub(Node):
                                 self.get_logger().info(f'Input: {f_scale:g} {r_scale:g}\tOutput vector: {output}')
 
                 if xbox.dpad_up:
-                        change = 0.1
+                        change = 0.01
+                        self.publish_depth_setpoint(change)
                 if xbox.dpad_down:
-                        change = -0.1
+                        change = -0.01
                         self.publish_depth_setpoint(change)
 
 def main(args=None):
