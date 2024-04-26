@@ -69,7 +69,7 @@ class PCA9685Controller(Node):
             self.translational_callback,
             10)
         self.depth_control_subscription = self.create_subscription(
-            Depthm,
+            Pca9685,
             'depth_signal',
             self.depth_control_callback,
             10)
