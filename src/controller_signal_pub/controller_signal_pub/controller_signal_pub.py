@@ -71,6 +71,8 @@ class ControllerSignalPub(Node):
                 super().__init__('controller_signal_pub')
                 self.translational_publisher = self.create_publisher(Pca9685, 'translational_signal', 10)
                 self.depth_sp_publisher = self.create_publisher(Depthm, 'depth_setpoint', 10)
+                timer_period = 0.5
+                self.timer = self.create_timer(timer_period, self.depth_publisher_callback)
                 self.depth_setpoint = 0;
                 self.subscription = self.create_subscription(
                     Joy,
@@ -99,10 +101,9 @@ class ControllerSignalPub(Node):
                 msg.channel_values[3] = input_array[3]
                 self.translational_publisher.publish(msg)
     
-        def publish_depth_setpoint(self, change):
+        def depth_publisher_callback(self):
                 msg = Depthm()
-                self.depth_setpoint = self.depth_setpoint + change
-                msg.depth_m = self.depth_setpoint
+                msg.depth_m = float(self.depth_setpoint)
                 self.depth_sp_publisher.publish(msg)
             
         def listener_callback(self, msg):
@@ -154,11 +155,9 @@ class ControllerSignalPub(Node):
                                 self.get_logger().info(f'Input: {f_scale:g} {r_scale:g}\tOutput vector: {output}')
 
                 if xbox.dpad_up:
-                        change = 0.01
-                        self.publish_depth_setpoint(change)
+                        self.depth_setpoint = self.depth_setpoint + 0.01
                 if xbox.dpad_down:
-                        change = -0.01
-                        self.publish_depth_setpoint(change)
+                        self.depth_setpoint = self.depth_setpoint - 0.01
 
 def main(args=None):
     rclpy.init(args=args)
