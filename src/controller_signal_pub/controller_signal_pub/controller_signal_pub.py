@@ -11,7 +11,7 @@ import numpy as np
 import math
 from rclpy.node import Node
 
-from std_msgs.msg import String
+from std_msgs.msg import String 
 from sensor_msgs.msg import Joy
 
 # basis vectors
@@ -19,6 +19,7 @@ basis_f = np.array([1, 1, -1, -1])
 basis_r = np.array([-1, 1, -1, 1])
 basis_yaw = np.array([-1, 1, 1, -1]) #right, inverse for left
 
+TURN_POWER = 0.8 #never set this to 1
 
 class EdgeDetector:
         def __init__(self):
@@ -43,11 +44,11 @@ class XboxMsg:
                 Trigger: 0 to 1 for press amount
                 Button: False for unpressed, True for pressed
                 """
-                self.left_x = -msg.axes[0] # flipped b/c normally +1 corresponds to left :vomit:
-                self.left_y = msg.axes[1]
+                self.left_y = msg.axes[0]
+                self.left_x = -msg.axes[1] # flipped b/c normally +1 corresponds to left :vomit:
                 self.left_trigger = (1-msg.axes[2])/2
-                self.right_x = -msg.axes[3]
-                self.right_y = msg.axes[4]
+                self.right_y = msg.axes[3]
+                self.right_x = -msg.axes[4]
                 self.right_trigger = (1-msg.axes[5])/2
                 self.dpad_left = msg.axes[6] == 1.0
                 self.dpad_right = msg.axes[6] == -1.0
@@ -73,7 +74,7 @@ class ControllerSignalPub(Node):
                 self.depth_sp_publisher = self.create_publisher(Depthm, 'depth_setpoint', 10)
                 timer_period = 0.5
                 self.timer = self.create_timer(timer_period, self.depth_publisher_callback)
-                self.depth_setpoint = 0;
+                self.depth_setpoint = 0
                 self.subscription = self.create_subscription(
                     Joy,
                     'joy',
@@ -81,6 +82,7 @@ class ControllerSignalPub(Node):
                     10)
                 self.subscription  # prevent unused variable warning
                 self.mode_edge_detector = EdgeDetector()
+                self.manual_depth_control = True
                 print('Controller Signal Publisher Ready!')
 
         def norm_input(self, input_array, f_scale, r_scale):
@@ -92,13 +94,18 @@ class ControllerSignalPub(Node):
 
                 return scale * direction
     
-        def publish_translational(self, input_array):
+        def publish_translational(self, input_array, debug_depth_control=[0,0]):
                 msg = Pca9685()
                 msg.channel_values = np.zeros(16, dtype = np.float32)
                 msg.channel_values[0] = input_array[0]
                 msg.channel_values[1] = input_array[1]
                 msg.channel_values[2] = input_array[2]
                 msg.channel_values[3] = input_array[3]
+                
+                #only for manual depth control debugging
+                if self.manual_depth_control:
+                        msg.channel_values[4] = debug_depth_control[0]
+                        msg.channel_values[5] = debug_depth_control[1]
                 self.translational_publisher.publish(msg)
     
         def depth_publisher_callback(self):
@@ -135,29 +142,35 @@ class ControllerSignalPub(Node):
                 f_scale = xbox.left_y
                 r_scale = xbox.left_x
                 PWR_SCALE = 1 / (2 ** self.PWR_MODE)  # this needs to be continuously updated
-                if (not f_scale) and (not r_scale) and (xbox.right_bumper == xbox.left_bumper):
+                debug_vertical = [0,0]
+                if xbox.dpad_up:
+                        self.depth_setpoint = self.depth_setpoint + 0.01
+                        if self.manual_depth_control:
+                                debug_vertical = [0.9, 0.9]
+                                self.get_logger().info(f'debug v. vector: {debug_vertical}')
+                if xbox.dpad_down:
+                        self.depth_setpoint = self.depth_setpoint - 0.01
+                        if self.manual_depth_control:
+                                debug_vertical = [-0.9, -0.9]
+                                self.get_logger().info(f'debug v. vector: {debug_vertical}')
+                if (not f_scale) and (not r_scale) and (xbox.right_bumper == xbox.left_bumper) and not xbox.dpad_up and not xbox.dpad_down:
                         self.publish_translational([0,0,0,0])
                 else:
                         if xbox.right_bumper:
                                 output = TURN_POWER * basis_yaw
-                                self.publish_translational(output)
+                                self.publish_translational(output, debug_vertical)
                                 self.get_logger().info(f'yawing right: {output}')
                         elif xbox.left_bumper:
                                 output = -TURN_POWER * basis_yaw
-                                self.publish_translational(output)
+                                self.publish_translational(output, debug_vertical)
                                 self.get_logger().info(f'yawing left: {output}')
                         else:
                                 # yawing takes exclusive precedence over translational motion 
                                 output = f_scale * basis_f + r_scale * basis_r
                                 output = self.norm_input(output, f_scale, r_scale)
                                 # publish
-                                self.publish_translational(output)
-                                self.get_logger().info(f'Input: {f_scale:g} {r_scale:g}\tOutput vector: {output}')
-
-                if xbox.dpad_up:
-                        self.depth_setpoint = self.depth_setpoint + 0.01
-                if xbox.dpad_down:
-                        self.depth_setpoint = self.depth_setpoint - 0.01
+                                self.publish_translational(output, debug_vertical)
+                                self.get_logger().info(f'Output vector: {output}')
 
 def main(args=None):
     rclpy.init(args=args)

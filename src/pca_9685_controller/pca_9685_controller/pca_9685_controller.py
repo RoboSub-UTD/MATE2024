@@ -13,7 +13,7 @@ import math
 import board
 import adafruit_pca9685
 
-from rclpy.node import Node
+from rclpy.node import Node 
 
 from custom_interfaces.msg import Pca9685
 
@@ -46,15 +46,14 @@ class Channel:
     range_duty = int(max_duty - neut_duty)
     
     def set(self, power):
-       print("test")       
        self.channel.duty_cycle = int(((-1 if self.reversed else 1)*power*self.range_duty + self.neut_duty))
 
 @dataclass
 class Channels(Channel, Enum):
-    THRUSTER_FR = (pca.channels[0], False)
-    THRUSTER_FL = (pca.channels[1], False)
-    THRUSTER_BR = (pca.channels[2], False)
-    THRUSTER_BL = (pca.channels[3], False)
+    THRUSTER_FR = (pca.channels[0], True)
+    THRUSTER_FL = (pca.channels[1], True)
+    THRUSTER_BR = (pca.channels[2], True)
+    THRUSTER_BL = (pca.channels[3], True)
     THRUSTER_VR = (pca.channels[4], False)
     THRUSTER_VL = (pca.channels[5], False)
     SERVO_CLAW  = (pca.channels[6], False, SERVO_CLAW_RANGE_US)
@@ -75,24 +74,29 @@ class PCA9685Controller(Node):
             10)
         self.translational_subscription  # prevent unused variable warning
         self.depth_control_subscription  # prevent unused variable warning
+        self.manual_depth_control = True
         
         print('PCA9685 Controller Ready!')
     
     def push_translational(self, input_array):
+        #self.get_logger().info(f'debug input array: {input_array}')
         Channels.THRUSTER_FR.set(input_array[0])
         Channels.THRUSTER_FL.set(input_array[1])
         Channels.THRUSTER_BR.set(input_array[2])
         Channels.THRUSTER_BL.set(input_array[3])
+        if self.manual_depth_control:
+                Channels.THRUSTER_VR.set(input_array[4])
+                Channels.THRUSTER_VL.set(input_array[5])	
         
     def push_depth_control(self, input_array):
         Channels.THRUSTER_VR.set(input_array[4])
         Channels.THRUSTER_VL.set(input_array[5])
     
     def translational_callback(self, msg):
-        push_translational(msg)
+        self.push_translational(msg.channel_values)
     
     def depth_control_callback(self, msg):
-        push_deph_control(msg)
+        self.push_deph_control(msg.channel_values)
         
 
 def main(args=None):
@@ -101,7 +105,7 @@ def main(args=None):
     pca_9685_controller = PCA9685Controller()
 
     try:
-        rclpy.spin(rov_translational_motion)
+        rclpy.spin(pca_9685_controller)
     except KeyboardInterrupt:
         print('Ctrl-C caught! Exiting...')
 

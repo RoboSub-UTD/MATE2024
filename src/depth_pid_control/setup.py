@@ -1,6 +1,6 @@
 from setuptools import setup
 
-package_name = 'depth_PID_control'
+package_name = 'depth_pid_control'
 
 setup(
     name=package_name,
@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+        	'depth_pid_control = depth_pid_control.depth_PID_control:main'
         ],
     },
 )

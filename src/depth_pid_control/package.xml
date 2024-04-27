@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>depth_PID_control</name>
+  <name>depth_pid_control</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
   <maintainer email="mahkgamer@gmail.com">onboard-rs</maintainer>
