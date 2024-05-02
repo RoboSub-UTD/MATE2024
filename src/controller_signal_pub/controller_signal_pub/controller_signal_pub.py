@@ -11,31 +11,37 @@ import numpy as np
 import math
 from rclpy.node import Node
 
-from std_msgs.msg import String 
+from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 
 # basis vectors
 basis_f = np.array([1, 1, -1, -1])
 basis_r = np.array([-1, 1, -1, 1])
-basis_yaw = np.array([-1, 1, 1, -1]) #right, inverse for left
+basis_yaw = np.array([-1, 1, 1, -1])  # right, inverse for left
 
-TURN_POWER = 0.8 #never set this to 1
+# Power constants
+DEPTH_SETPT_DELTA = 0.01
+VERTICAL_POWER = 0.9
+TURN_POWER = 0.75  # never set this to 1
+DEFAULT_PWR_MODE = 0
+
 
 class EdgeDetector:
-        def __init__(self):
-                self.last_value = False
-                self.rising = False
-                self.falling = False
+    def __init__(self):
+        self.last_value = False
+        self.rising = False
+        self.falling = False
 
-        def update(self, value):
-                self.rising = False
-                self.falling = False
-                if self.last_value != value:
-                    if not self.last_value and value:
-                        self.rising = True
-                    else:
-                        self.falling = True
-                self.last_value = value
+    def update(self, value):
+        self.rising = False
+        self.falling = False
+        if self.last_value != value:
+            if not self.last_value and value:
+                self.rising = True
+            else:
+                self.falling = True
+        self.last_value = value
+
 '''
 class XboxMsg:
         def __init__(self, msg):
@@ -98,109 +104,101 @@ class DS4Msg:
 
 
 class ControllerSignalPub(Node):
-        def __init__(self):
-                super().__init__('controller_signal_pub')
-                self.translational_publisher = self.create_publisher(Pca9685, 'translational_signal', 10)
-                self.depth_sp_publisher = self.create_publisher(Depthm, 'depth_setpoint', 10)
-                timer_period = 0.5
-                self.timer = self.create_timer(timer_period, self.depth_publisher_callback)
-                self.depth_setpoint = 0
-                self.subscription = self.create_subscription(
-                    Joy,
-                    'joy',
-                    self.listener_callback,
-                    10)
-                self.subscription  # prevent unused variable warning
-                self.mode_edge_detector = EdgeDetector()
-                self.manual_depth_control = True
-                print('Controller Signal Publisher Ready!')
+    def __init__(self):
+        super().__init__("controller_signal_pub")
+        self.translational_publisher = self.create_publisher(Pca9685, "translational_signal", 10)
+        self.depth_sp_publisher = self.create_publisher(Depthm, "depth_setpoint", 10)
 
-        def norm_input(self, input_array, f_scale, r_scale):
-                if np.linalg.norm(input_array) == 0:
-                    return input_array
+        timer_period = 0.1
+        self.timer = self.create_timer(timer_period, self.depth_publisher_callback)
+        self.depth_setpoint = 0
+        self.subscription = self.create_subscription(Joy, "joy", self.listener_callback, 10)
+        self.subscription  # prevent unused variable warning
 
-                scale = math.sqrt(2) * max(min(np.linalg.norm(np.array([f_scale, r_scale])), 1), -1)
-                direction = input_array / (np.linalg.norm(input_array)) # unit vector
+        self.left_edge_detector = EdgeDetector()
+        self.right_edge_detector = EdgeDetector()
+        self.mode_edge_detector = EdgeDetector()
+        self.power_mode = DEFAULT_PWR_MODE
 
-                return scale * direction
-    
-        def publish_translational(self, input_array, debug_depth_control=[0,0]):
-                msg = Pca9685()
-                msg.channel_values = np.zeros(16, dtype = np.float32)
-                msg.channel_values[0] = input_array[0]
-                msg.channel_values[1] = input_array[1]
-                msg.channel_values[2] = input_array[2]
-                msg.channel_values[3] = input_array[3]
-                
-                #only for manual depth control debugging
-                if self.manual_depth_control:
-                        msg.channel_values[4] = debug_depth_control[0]
-                        msg.channel_values[5] = debug_depth_control[1]
-                self.translational_publisher.publish(msg)
-    
-        def depth_publisher_callback(self):
-                msg = Depthm()
-                msg.depth_m = float(self.depth_setpoint)
-                self.depth_sp_publisher.publish(msg)
-            
-        def listener_callback(self, msg):
-                ds4 = DS4Msg(msg)
-                self.PWR_MODE = 0
+        self.servo_state = 0 # 1 for right, -1 for left
 
-                self.mode_edge_detector.update(ds4.options)
-                '''
-                self.left_edge_detector.update(xbox.x)
-                self.right_edge_detector.update(xbox.b)
-                '''
+        self.manual_depth_control = True
+        print("Controller Signal Publisher Ready!")
 
-                if self.mode_edge_detector.rising:
-                        self.PWR_MODE = (self.PWR_MODE + 1) % 3
-                        self.get_logger().info(f'Power mode: {PWR_MODE}')
-                #reimplement spinny claw later.. separate publisher?
-                '''
-                if self.right_edge_detector.rising:
-                if self.servo_state != 1:
+    def norm_input(self, input_array, f_scale, r_scale):
+        if np.linalg.norm(input_array) == 0:
+            return input_array
+
+        scale = math.sqrt(2) * max(min(np.linalg.norm(np.array([f_scale, r_scale])), 1), -1)
+        direction = input_array / (np.linalg.norm(input_array))  # unit vector
+
+        return scale * direction
+
+    def publish_translational(self, pwm_outputs):
+        msg = Pca9685()
+        msg.channel_values = np.zeros(16, dtype=np.float32)
+        msg.channel_values[0:len(pwm_outputs)] = pwm_outputs
+
+        self.translational_publisher.publish(msg)
+
+    def depth_publisher_callback(self):
+        msg = Depthm()
+        msg.depth_m = float(self.depth_setpoint)
+        self.depth_sp_publisher.publish(msg)
+
+    def listener_callback(self, msg):
+        ds4 = DS4Msg(msg)
+        self.mode_edge_detector.update(ds4.options)
+        self.left_edge_detector.update(ds4.x)
+        self.right_edge_detector.update(ds4.b)
+
+        if self.mode_edge_detector.rising:
+            self.power_mode = (self.power_mode + 1) % 3
+            self.get_logger().info(f"Power mode: {self.power_mode}")
+
+        f_scale = ds4.left_y
+        r_scale = ds4.left_x
+        power_scale = 1 / (2 ** self.power_mode)
+        if ds4.left_bumper != ds4.right_bumper or f_scale or r_scale:
+            if ds4.right_bumper:
+                thrusters = TURN_POWER * basis_yaw
+                self.get_logger().info(f"yawing right: {thrusters}")
+            elif ds4.left_bumper:
+                thrusters = -TURN_POWER * basis_yaw
+                self.get_logger().info(f"yawing left: {thrusters}")
+            else:
+                thrusters = f_scale * basis_f + r_scale * basis_r
+                thrusters = self.norm_input(thrusters, f_scale, r_scale)
+                thrusters *= power_scale
+                self.get_logger().info(f"thruster output: {thrusters}")
+
+        debug_vertical = np.array([0, 0])
+        if ds4.dpad_up:
+            self.depth_setpoint -= DEPTH_SETPT_DELTA  # depth setpoint is +ve for down
+            if self.manual_depth_control:
+                debug_vertical = np.array([1, 1]) * VERTICAL_POWER
+                self.get_logger().info(f"debug vert vector: {debug_vertical}")
+        if ds4.dpad_down:
+            self.depth_setpoint += DEPTH_SETPT_DELTA
+            if self.manual_depth_control:
+                debug_vertical = np.array([1, 1]) * -VERTICAL_POWER
+                self.get_logger().info(f"debug vert vector: {debug_vertical}")
+
+        if self.right_edge_detector.rising:
+            if self.servo_state != 1:
                 self.servo_state = 1
-                else:
+            else:
                 self.servo_state = 0
-                elif self.left_edge_detector.rising:
-                if self.servo_state != -1:
+        elif self.left_edge_detector.rising:
+            if self.servo_state != -1:
                 self.servo_state = -1
-                else:
+            else:
                 self.servo_state = 0
-                '''
-                f_scale = ds4.left_y
-                r_scale = ds4.left_x
-                PWR_SCALE = 1 / (2 ** self.PWR_MODE)  # this needs to be continuously updated
-                debug_vertical = [0,0]
-                if ds4.dpad_up:
-                        self.depth_setpoint = self.depth_setpoint + 0.01
-                        if self.manual_depth_control:
-                                debug_vertical = [0.9, 0.9]
-                                self.get_logger().info(f'debug v. vector: {debug_vertical}')
-                if ds4.dpad_down:
-                        self.depth_setpoint = self.depth_setpoint - 0.01
-                        if self.manual_depth_control:
-                                debug_vertical = [-0.9, -0.9]
-                                self.get_logger().info(f'debug v. vector: {debug_vertical}')
-                if (not f_scale) and (not r_scale) and (ds4.right_bumper == ds4.left_bumper) and not ds4.dpad_up and not ds4.dpad_down:
-                        self.publish_translational([0,0,0,0])
-                else:
-                        if ds4.right_bumper:
-                                output = TURN_POWER * basis_yaw
-                                self.publish_translational(output, debug_vertical)
-                                self.get_logger().info(f'yawing right: {output}')
-                        elif ds4.left_bumper:
-                                output = -TURN_POWER * basis_yaw
-                                self.publish_translational(output, debug_vertical)
-                                self.get_logger().info(f'yawing left: {output}')
-                        else:
-                                # yawing takes exclusive precedence over translational motion 
-                                output = f_scale * basis_f + r_scale * basis_r
-                                output = self.norm_input(output, f_scale, r_scale)
-                                # publish
-                                self.publish_translational(output, debug_vertical)
-                                self.get_logger().info(f'Output vector: {output}')
+
+        output = np.concatenate((thrusters, debug_vertical, [self.servo_state]))
+        assert output.shape == (7,)
+        self.publish_translational(output)
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -210,7 +208,7 @@ def main(args=None):
     try:
         rclpy.spin(controller_signal_pub)
     except KeyboardInterrupt:
-        print('Ctrl-C caught! Exiting...')
+        print("Ctrl-C caught! Exiting...")
 
     # Destroy the node explicitly
     # (optional - otherwise it will be done automatically
@@ -218,6 +216,6 @@ def main(args=None):
     controller_signal_pub.destroy_node()
     rclpy.try_shutdown()
 
-if __name__ == '__main__':
-    main
-    
+
+if __name__ == "__main__":
+    main()
