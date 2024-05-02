@@ -36,7 +36,7 @@ class EdgeDetector:
                     else:
                         self.falling = True
                 self.last_value = value
-
+'''
 class XboxMsg:
         def __init__(self, msg):
                 """
@@ -65,7 +65,37 @@ class XboxMsg:
                 self.start = button_map[7]
                 self.left_stick = button_map[9]   # press into the left stick
                 self.right_stick = button_map[10] # press into the right stick
-        
+'''
+
+class DS4Msg:
+        def __init__(self, msg):
+                """
+                Joystick: +1 for up, right
+                Trigger: 0 to 1 for press amount
+                Button: False for unpressed, True for pressed
+                """
+                self.left_y = msg.axes[1]
+                self.left_x = -msg.axes[0]  # flipped b/c normally +1 corresponds to left :vomit:
+                self.left_trigger = (1 - msg.axes[2]) / 2
+                self.right_y = msg.axes[4]
+                self.right_x = -msg.axes[3]
+                self.right_trigger = (1 - msg.axes[5]) / 2
+                self.dpad_left = msg.axes[6] == 1.0
+                self.dpad_right = msg.axes[6] == -1.0
+                self.dpad_up = msg.axes[7] == 1.0
+                self.dpad_down = msg.axes[7] == -1.0
+                button_map = list(map(bool, msg.buttons))
+                self.a = button_map[1] ## O button
+                self.b = button_map[0] ## X button
+                self.x = button_map[2] ## Triangle button
+                self.y = button_map[3] ## Square button
+                self.left_bumper = button_map[4]
+                self.right_bumper = button_map[5]
+                self.share = button_map[8]
+                self.options = button_map[9]
+                self.left_stick = button_map[11]    # press into the left stick
+                self.right_stick = button_map[12]  # press into the right stick
+
 
 class ControllerSignalPub(Node):
         def __init__(self):
@@ -114,10 +144,10 @@ class ControllerSignalPub(Node):
                 self.depth_sp_publisher.publish(msg)
             
         def listener_callback(self, msg):
-                xbox = XboxMsg(msg)
+                ds4 = DS4Msg(msg)
                 self.PWR_MODE = 0
 
-                self.mode_edge_detector.update(xbox.start)
+                self.mode_edge_detector.update(ds4.options)
                 '''
                 self.left_edge_detector.update(xbox.x)
                 self.right_edge_detector.update(xbox.b)
@@ -139,28 +169,28 @@ class ControllerSignalPub(Node):
                 else:
                 self.servo_state = 0
                 '''
-                f_scale = xbox.left_y
-                r_scale = xbox.left_x
+                f_scale = ds4.left_y
+                r_scale = ds4.left_x
                 PWR_SCALE = 1 / (2 ** self.PWR_MODE)  # this needs to be continuously updated
                 debug_vertical = [0,0]
-                if xbox.dpad_up:
+                if ds4.dpad_up:
                         self.depth_setpoint = self.depth_setpoint + 0.01
                         if self.manual_depth_control:
                                 debug_vertical = [0.9, 0.9]
                                 self.get_logger().info(f'debug v. vector: {debug_vertical}')
-                if xbox.dpad_down:
+                if ds4.dpad_down:
                         self.depth_setpoint = self.depth_setpoint - 0.01
                         if self.manual_depth_control:
                                 debug_vertical = [-0.9, -0.9]
                                 self.get_logger().info(f'debug v. vector: {debug_vertical}')
-                if (not f_scale) and (not r_scale) and (xbox.right_bumper == xbox.left_bumper) and not xbox.dpad_up and not xbox.dpad_down:
+                if (not f_scale) and (not r_scale) and (ds4.right_bumper == ds4.left_bumper) and not ds4.dpad_up and not ds4.dpad_down:
                         self.publish_translational([0,0,0,0])
                 else:
-                        if xbox.right_bumper:
+                        if ds4.right_bumper:
                                 output = TURN_POWER * basis_yaw
                                 self.publish_translational(output, debug_vertical)
                                 self.get_logger().info(f'yawing right: {output}')
-                        elif xbox.left_bumper:
+                        elif ds4.left_bumper:
                                 output = -TURN_POWER * basis_yaw
                                 self.publish_translational(output, debug_vertical)
                                 self.get_logger().info(f'yawing left: {output}')
