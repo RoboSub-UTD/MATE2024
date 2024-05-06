@@ -12,6 +12,7 @@ import numpy as np
 import math
 import board
 import adafruit_pca9685
+import time
 
 from rclpy.node import Node
 
@@ -26,6 +27,7 @@ class ServoRanges_us(Enum):
 FREQ_HZ = 50
 NEUTRAL = 1500
 RANGE_US = 400
+CORRECTION_FACTOR = 1.025
 SERVO_CLAW_RANGE_US = ServoRanges_us.FT6335M
 SERVO_SPOOL_RANGE_US = ServoRanges_us.GOBILDA
 
@@ -55,7 +57,7 @@ class Channel:
 
     def set(self, power):
         self.channel.duty_cycle = int(
-            ((-1 if self.reversed else 1) * power * self.range_duty + self.neut_duty)
+            ((-1 if self.reversed else 1) * power * CORRECTION_FACTOR * self.range_duty + self.neut_duty)
         )
 
 class Channels(Channel, Enum):
@@ -68,6 +70,7 @@ class Channels(Channel, Enum):
     THRUSTER_VL = (pca.channels[5], False)
     SERVO_CLAW  = (pca.channels[6], False, SERVO_CLAW_RANGE_US)
     SERVO_SPOOL = (pca.channels[7], False, SERVO_SPOOL_RANGE_US)
+    SOLENOID    = (pca.channels[8], False)
 
 
 class PCA9685Controller(Node):
@@ -81,28 +84,50 @@ class PCA9685Controller(Node):
         )
         self.translational_subscription  # prevent unused variable warning
         self.depth_control_subscription  # prevent unused variable warning
+        
+        #initialize thrusters
+        Channels.THRUSTER_FR.set(0)
+        Channels.THRUSTER_FL.set(0)
+        Channels.THRUSTER_BR.set(0)
+        Channels.THRUSTER_BL.set(0)
+        Channels.THRUSTER_VR.set(0)
+        Channels.THRUSTER_VL.set(0)
+        Channels.SERVO_CLAW.set(0)
+        Channels.SERVO_SPOOL.set(0)
+        time.sleep(5)
+        
 
         self.manual_depth_control = True
+        
 
         print("PCA9685 Controller Ready!")
 
     def push_translational(self, input_array):
         # self.get_logger().info(f'debug input array: {input_array}')
-        Channels.THRUSTER_FR.set(input_array[0])
-        Channels.THRUSTER_FL.set(input_array[1])
-        Channels.THRUSTER_BR.set(input_array[2])
-        Channels.THRUSTER_BL.set(input_array[3])
-        if self.manual_depth_control:
-            Channels.THRUSTER_VR.set(input_array[4])
-            Channels.THRUSTER_VL.set(input_array[5])
+        #Channels.THRUSTER_FR.set(input_array[0])
+        #Channels.THRUSTER_FL.set(input_array[1])
+        #Channels.THRUSTER_BR.set(input_array[2])
+        #Channels.THRUSTER_BL.set(input_array[3])
+        #if self.manual_depth_control:
+            #Channels.THRUSTER_VR.set(input_array[4])
+            #Channels.THRUSTER_VL.set(input_array[5])
         Channels.SERVO_CLAW.set(input_array[6])
-
+        ##implement spool stuff here
+        if (input_array[8] == 1):
+            #set pin to GPIO high
+            Channels.SOLENOID.channel.duty_cycle = 0xFFFF
+        else:  
+            #set pin to GPIO low 
+            Channels.SOLENOID.channel.duty_cycle = 0
+            
     def push_depth_control(self, input_array):
-        if not self.manual_depth_control:
-            Channels.THRUSTER_VR.set(input_array[4])
-            Channels.THRUSTER_VL.set(input_array[5])
+        #if not self.manual_depth_control:
+            #Channels.THRUSTER_VR.set(input_array[4])
+            #Channels.THRUSTER_VL.set(input_array[5])
+        pass
 
     def translational_callback(self, msg):
+        #self.manual_depth_control = self.get_parameter('manual_depth_control').get_parameter_value()
         self.push_translational(msg.channel_values)
 
     def depth_control_callback(self, msg):

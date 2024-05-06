@@ -115,14 +115,20 @@ class ControllerSignalPub(Node):
         self.subscription = self.create_subscription(Joy, "joy", self.listener_callback, 10)
         self.subscription  # prevent unused variable warning
 
-        self.left_edge_detector = EdgeDetector()
-        self.right_edge_detector = EdgeDetector()
+        self.sclaw_left_edge_detector = EdgeDetector()
+        self.sclaw_right_edge_detector = EdgeDetector()
+        self.solenoid_edge_detector = EdgeDetector()
         self.mode_edge_detector = EdgeDetector()
         self.power_mode = DEFAULT_PWR_MODE
-
+        
         self.servo_state = 0 # 1 for right, -1 for left
+        self.spool_state = 0
+        self.solenoid_state = 0
+        
+        #self.declare_parameter('manual_depth_control', False)
 
         self.manual_depth_control = True
+        
         print("Controller Signal Publisher Ready!")
 
     def norm_input(self, input_array, f_scale, r_scale):
@@ -148,9 +154,11 @@ class ControllerSignalPub(Node):
 
     def listener_callback(self, msg):
         ds4 = DS4Msg(msg)
+        #self.manual_depth_control = self.get_parameter('manual_depth_control').get_parameter_value()
         self.mode_edge_detector.update(ds4.options)
-        self.left_edge_detector.update(ds4.x)
-        self.right_edge_detector.update(ds4.b)
+        self.sclaw_left_edge_detector.update(ds4.x)
+        self.sclaw_right_edge_detector.update(ds4.b)
+        self.solenoid_edge_detector.update(ds4.a)
 
         if self.mode_edge_detector.rising:
             self.power_mode = (self.power_mode + 1) % 3
@@ -171,6 +179,8 @@ class ControllerSignalPub(Node):
                 thrusters = self.norm_input(thrusters, f_scale, r_scale)
                 thrusters *= power_scale
                 self.get_logger().info(f"thruster output: {thrusters}")
+        else:
+            thrusters = np.array([0,0,0,0])
 
         debug_vertical = np.array([0, 0])
         if ds4.dpad_up:
@@ -184,19 +194,28 @@ class ControllerSignalPub(Node):
                 debug_vertical = np.array([1, 1]) * -VERTICAL_POWER
                 self.get_logger().info(f"debug vert vector: {debug_vertical}")
 
-        if self.right_edge_detector.rising:
+        if self.sclaw_right_edge_detector.rising:
             if self.servo_state != 1:
                 self.servo_state = 1
             else:
                 self.servo_state = 0
-        elif self.left_edge_detector.rising:
+        elif self.sclaw_left_edge_detector.rising:
             if self.servo_state != -1:
                 self.servo_state = -1
             else:
                 self.servo_state = 0
-
-        output = np.concatenate((thrusters, debug_vertical, [self.servo_state]))
-        assert output.shape == (7,)
+        
+        if self.solenoid_edge_detector.rising:
+            if self.solenoid_state != 1:
+                self.solenoid_state = 1
+            else:
+                self.solenoid_state = 0
+            self.get_logger().info("claw toggled: state " + str(self.solenoid_state))
+        
+        self.spool_state = 0 ##to be implemented later
+        
+        output = np.concatenate((thrusters, debug_vertical, [self.servo_state], [self.spool_state], [self.solenoid_state]))
+        assert output.shape == (9,)
         self.publish_translational(output)
 
 
