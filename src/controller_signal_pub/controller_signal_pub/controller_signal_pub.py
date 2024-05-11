@@ -23,7 +23,7 @@ basis_yaw = np.array([-1, 1, 1, -1])  # right, inverse for left
 # Power constants
 DEPTH_SETPT_DELTA = 0.01
 #VERTICAL_POWER = 0.9
-TURN_POWER = 0.75  # never set this to 1
+TURN_POWER = 1 
 DEFAULT_PWR_MODE = 0
 
 
@@ -183,14 +183,13 @@ class ControllerSignalPub(Node):
 
         f_scale = ds4.left_y
         r_scale = ds4.left_x
+        t_scale = ds4.right_x
+        t_scale = math.copysign(1, t_scale) * t_scale**2
         power_scale = 1 / (2 ** self.power_mode)
-        if ds4.left_bumper != ds4.right_bumper or f_scale or r_scale:
-            if ds4.right_bumper:
-                thrusters = TURN_POWER * basis_yaw
-                self.get_logger().info(f"yawing right: {thrusters}")
-            elif ds4.left_bumper:
-                thrusters = -TURN_POWER * basis_yaw
-                self.get_logger().info(f"yawing left: {thrusters}")
+        if t_scale or f_scale or r_scale:
+            if t_scale:
+                thrusters = TURN_POWER * t_scale * basis_yaw
+                self.get_logger().info(f"yawing {'left' if t_scale < 0 else 'right'}: {thrusters}")
             else:
                 thrusters = f_scale * basis_f + r_scale * basis_r
                 thrusters = self.norm_input(thrusters, f_scale, r_scale)
