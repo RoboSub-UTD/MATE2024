@@ -92,7 +92,7 @@ class DepthPIDControl(Node):
             self.depth_actual, self.depth_setpoint, self.timer_period
         )
         self.get_logger().info(f"At setpoint? {'YES' if self.pid_controller.at_setpoint() else ' NO'}; PID_output = {pid_output:g}")
-        pid_scale_factor = 1 / 50
+        pid_scale_factor = -1
         output_signal = clamp(pid_output * pid_scale_factor, -1, 1)  # from 1 (max upward push) to -1 (max downward push)
         self.publish_depth_signal(output_signal)
 

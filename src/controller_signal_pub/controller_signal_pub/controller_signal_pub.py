@@ -12,6 +12,7 @@ import math
 from rclpy.node import Node
 
 from std_msgs.msg import String
+from std_msgs.msg import Bool
 from sensor_msgs.msg import Joy
 
 # basis vectors
@@ -21,7 +22,7 @@ basis_yaw = np.array([-1, 1, 1, -1])  # right, inverse for left
 
 # Power constants
 DEPTH_SETPT_DELTA = 0.01
-VERTICAL_POWER = 0.9
+#VERTICAL_POWER = 0.9
 TURN_POWER = 0.75  # never set this to 1
 DEFAULT_PWR_MODE = 0
 
@@ -80,8 +81,8 @@ class DS4Msg:
                 Trigger: 0 to 1 for press amount
                 Button: False for unpressed, True for pressed
                 """
-                self.left_y = msg.axes[1]
-                self.left_x = -msg.axes[0]  # flipped b/c normally +1 corresponds to left :vomit:
+                self.left_y = -msg.axes[0]
+                self.left_x = msg.axes[1]  # flipped b/c normally +1 corresponds to left :vomit:
                 self.left_trigger = (1 - msg.axes[2]) / 2
                 self.right_y = msg.axes[4]
                 self.right_x = -msg.axes[3]
@@ -107,6 +108,7 @@ class ControllerSignalPub(Node):
     def __init__(self):
         super().__init__("controller_signal_pub")
         self.translational_publisher = self.create_publisher(Pca9685, "translational_signal", 10)
+        self.dh_flag_publisher = self.create_publisher(Bool, "depth_hold_flag", 10)
         self.depth_sp_publisher = self.create_publisher(Depthm, "depth_setpoint", 10)
 
         timer_period = 0.1
@@ -119,6 +121,10 @@ class ControllerSignalPub(Node):
         self.sclaw_right_edge_detector = EdgeDetector()
         self.solenoid_edge_detector = EdgeDetector()
         self.mode_edge_detector = EdgeDetector()
+        self.dh_edge_detector = EdgeDetector()
+        
+        self.dh_flag = False
+        
         self.power_mode = DEFAULT_PWR_MODE
         
         self.servo_state = 0 # 1 for right, -1 for left
@@ -127,7 +133,7 @@ class ControllerSignalPub(Node):
         
         #self.declare_parameter('manual_depth_control', False)
 
-        self.manual_depth_control = True
+        #self.manual_depth_control = False
         
         print("Controller Signal Publisher Ready!")
 
@@ -151,6 +157,17 @@ class ControllerSignalPub(Node):
         msg = Depthm()
         msg.depth_m = float(self.depth_setpoint)
         self.depth_sp_publisher.publish(msg)
+    
+    def publish_dh_flag(self, dh_flag):
+        msg = Bool()
+        if dh_flag:
+            msg.data = True
+            
+        else:
+            msg.data = False
+            
+        self.dh_flag_publisher.publish(msg)
+            
 
     def listener_callback(self, msg):
         ds4 = DS4Msg(msg)
@@ -159,11 +176,20 @@ class ControllerSignalPub(Node):
         self.sclaw_left_edge_detector.update(ds4.x)
         self.sclaw_right_edge_detector.update(ds4.b)
         self.solenoid_edge_detector.update(ds4.a)
+        self.dh_edge_detector.update(ds4.share)
 
         if self.mode_edge_detector.rising:
             self.power_mode = (self.power_mode + 1) % 3
             self.get_logger().info(f"Power mode: {self.power_mode}")
-
+            
+        if self.dh_edge_detector.rising:
+            if self.dh_flag == False:
+                self.dh_flag = True
+                print("depth hold: ON")
+            else:
+                self.dh_flag = False
+                print("depth hold: OFF")
+                
         f_scale = ds4.left_y
         r_scale = ds4.left_x
         power_scale = 1 / (2 ** self.power_mode)
@@ -185,13 +211,14 @@ class ControllerSignalPub(Node):
         debug_vertical = np.array([0, 0])
         if ds4.dpad_up:
             self.depth_setpoint -= DEPTH_SETPT_DELTA  # depth setpoint is +ve for down
-            if self.manual_depth_control:
-                debug_vertical = np.array([1, 1]) * VERTICAL_POWER
-                self.get_logger().info(f"debug vert vector: {debug_vertical}")
         if ds4.dpad_down:
             self.depth_setpoint += DEPTH_SETPT_DELTA
-            if self.manual_depth_control:
-                debug_vertical = np.array([1, 1]) * -VERTICAL_POWER
+        if not self.dh_flag:
+            vertical_power = (ds4.right_trigger - ds4.left_trigger)
+            if abs(vertical_power) < 0.05:
+                vertical_power = 0
+            debug_vertical = np.array([1, 1]) * vertical_power
+            if vertical_power:
                 self.get_logger().info(f"debug vert vector: {debug_vertical}")
 
         if self.sclaw_right_edge_detector.rising:
@@ -199,17 +226,16 @@ class ControllerSignalPub(Node):
                 self.servo_state = 1
             else:
                 self.servo_state = 0
+            self.get_logger().info("servo toggled: state " + str(self.servo_state))
         elif self.sclaw_left_edge_detector.rising:
             if self.servo_state != -1:
                 self.servo_state = -1
             else:
                 self.servo_state = 0
+            self.get_logger().info("servo toggled: state " + str(self.servo_state))
         
         if self.solenoid_edge_detector.rising:
-            if self.solenoid_state != 1:
-                self.solenoid_state = 1
-            else:
-                self.solenoid_state = 0
+            self.solenoid_state ^= 1
             self.get_logger().info("claw toggled: state " + str(self.solenoid_state))
         
         self.spool_state = 0 ##to be implemented later
@@ -217,6 +243,7 @@ class ControllerSignalPub(Node):
         output = np.concatenate((thrusters, debug_vertical, [self.servo_state], [self.spool_state], [self.solenoid_state]))
         assert output.shape == (9,)
         self.publish_translational(output)
+        self.publish_dh_flag(self.dh_flag)
 
 
 def main(args=None):
