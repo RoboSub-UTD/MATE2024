@@ -20,7 +20,8 @@ from custom_interfaces.msg import Pca9685
 from std_msgs.msg import Bool
 
 class ServoRanges_us(Enum):
-    GOBILDA = 600
+    GOBILDA_CONT = 600
+    GOBILDA_FIX = 1000 
     HSR1425 = 300
     FT6335M = 1000
 
@@ -28,10 +29,9 @@ class ServoRanges_us(Enum):
 FREQ_HZ = 200
 NEUTRAL = 1500
 RANGE_US = 400
-
 CORRECTION_FACTOR = 1.003
 SERVO_CLAW_RANGE_US = ServoRanges_us.FT6335M
-SERVO_SPOOL_RANGE_US = ServoRanges_us.GOBILDA
+SERVO_SPOOL_RANGE_US = ServoRanges_us.GOBILDA_FIX
 
 i2c = board.I2C()
 pca = adafruit_pca9685.PCA9685(i2c)

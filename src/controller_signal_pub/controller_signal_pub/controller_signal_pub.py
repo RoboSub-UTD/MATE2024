@@ -117,6 +117,7 @@ class ControllerSignalPub(Node):
         self.subscription = self.create_subscription(Joy, "joy", self.listener_callback, 10)
         self.subscription  # prevent unused variable warning
 
+
         self.sclaw_left_edge_detector = EdgeDetector()
         self.sclaw_right_edge_detector = EdgeDetector()
         self.solenoid_edge_detector = EdgeDetector()
@@ -128,7 +129,7 @@ class ControllerSignalPub(Node):
         self.power_mode = DEFAULT_PWR_MODE
         
         self.servo_state = 0 # 1 for right, -1 for left
-        self.spool_state = 0
+        self.spool_state = -1
         self.solenoid_state = 0
         
         #self.declare_parameter('manual_depth_control', False)
@@ -209,7 +210,7 @@ class ControllerSignalPub(Node):
                 vertical_power = 0
             debug_vertical = np.array([1, 1]) * vertical_power
             if vertical_power:
-                self.get_logger().info(f"debug vert vector: {debug_vertical}")
+                self.get_logger().info(f"vertical thrust command: {debug_vertical}")
 
         if self.sclaw_right_edge_detector.rising:
             if self.servo_state != 1:
@@ -228,7 +229,18 @@ class ControllerSignalPub(Node):
             self.solenoid_state ^= 1
             self.get_logger().info("claw toggled: state " + str(self.solenoid_state))
         
-        self.spool_state = 0 ##to be implemented later
+        if ds4.left_bumper != ds4.right_bumper:
+            if ds4.left_bumper:
+                self.spool_state -= 0.02
+                if self.spool_state <= -1:
+                    self.spool_state = -1
+                self.get_logger().info("spool in: state = " + str(self.spool_state))
+            elif ds4.right_bumper:
+                self.spool_state += 0.02
+                if self.spool_state >= 1:
+                    self.spool_state = 1
+                self.get_logger().info("spool out: state = " + str(self.spool_state))
+
         
         output = np.concatenate((thrusters, debug_vertical, [self.servo_state], [self.spool_state], [self.solenoid_state]))
         assert output.shape == (9,)
