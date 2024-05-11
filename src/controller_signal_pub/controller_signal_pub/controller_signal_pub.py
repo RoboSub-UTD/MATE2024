@@ -160,14 +160,9 @@ class ControllerSignalPub(Node):
     
     def publish_dh_flag(self, dh_flag):
         msg = Bool()
-        if dh_flag:
-            msg.data = True
-            
-        else:
-            msg.data = False
-            
+        msg.data = dh_flag
         self.dh_flag_publisher.publish(msg)
-            
+
 
     def listener_callback(self, msg):
         ds4 = DS4Msg(msg)
@@ -181,15 +176,11 @@ class ControllerSignalPub(Node):
         if self.mode_edge_detector.rising:
             self.power_mode = (self.power_mode + 1) % 3
             self.get_logger().info(f"Power mode: {self.power_mode}")
-            
+
         if self.dh_edge_detector.rising:
-            if self.dh_flag == False:
-                self.dh_flag = True
-                print("depth hold: ON")
-            else:
-                self.dh_flag = False
-                print("depth hold: OFF")
-                
+            self.dh_flag = not self.dh_flag
+            print("depth hold: " + ("ON" if self.dh_flag else "OFF"))
+
         f_scale = ds4.left_y
         r_scale = ds4.left_x
         power_scale = 1 / (2 ** self.power_mode)

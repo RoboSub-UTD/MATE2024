@@ -84,23 +84,17 @@ class PCA9685Controller(Node):
         self.depth_control_subscription = self.create_subscription(
             Pca9685, "depth_signal", self.depth_control_callback, 10
         )
-        
         self.dh_flag_subscription = self.create_subscription(Bool, "depth_hold_flag", self.dh_flag_callback, 10)
         self.translational_subscription  # prevent unused variable warning
         self.depth_control_subscription  # prevent unused variable warning
-        
-        #initialize thrusters
+        self.dh_flag_subscription  # prevent unused variable warning
 
         self.dh_flag = False
-        
 
         print("PCA9685 Controller Ready!")
-    
+
     def dh_flag_callback(self, msg):
-        if msg.data == True:
-            self.dh_flag = True
-        else:
-            self.dh_flag = False 
+        self.dh_flag = bool(msg.data)
 
     def push_translational(self, input_array):
         #self.get_logger().info(f'input array: {input_array}')
@@ -109,7 +103,6 @@ class PCA9685Controller(Node):
         Channels.THRUSTER_FL.set(input_array[1])
         Channels.THRUSTER_BR.set(input_array[2])
         Channels.THRUSTER_BL.set(input_array[3])
-
 
         if not self.dh_flag:
             Channels.THRUSTER_VR.set(input_array[4])
@@ -143,6 +136,8 @@ def main(args=None):
 
     pca_9685_controller = PCA9685Controller()
     time.sleep(5)
+    
+    # Initialize/arm servos
     Channels.THRUSTER_FR.set(0)
     Channels.THRUSTER_FL.set(0)
     Channels.THRUSTER_BR.set(0)
@@ -152,9 +147,9 @@ def main(args=None):
     Channels.SERVO_CLAW.set(0)
     Channels.SERVO_SPOOL.set(0)
     time.sleep(5)
-    print("\n\n\nThrusters and servos initialized.\n\n\n")
 
- 
+    print("\n\nThrusters and servos initialized.\n\n")
+
     try:
         rclpy.spin(pca_9685_controller)
     except KeyboardInterrupt:
