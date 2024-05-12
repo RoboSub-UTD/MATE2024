@@ -70,7 +70,7 @@ class Channels(Channel, Enum):
     THRUSTER_BL = (pca.channels[3], False)
     THRUSTER_VR = (pca.channels[4], True)
     THRUSTER_VL = (pca.channels[5], False)
-    SERVO_CLAW  = (pca.channels[6], False, SERVO_CLAW_RANGE_US)
+    SERVO_CLAW  = (pca.channels[15], False, SERVO_CLAW_RANGE_US)
     SERVO_SPOOL = (pca.channels[7], False, SERVO_SPOOL_RANGE_US)
     SOLENOID    = (pca.channels[8], False)
 
